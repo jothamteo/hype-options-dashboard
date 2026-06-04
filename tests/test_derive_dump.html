@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Derive raw-data dump</title>
+  <link rel="icon" type="image/svg+xml" href="../assets/favicon.svg" />
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-zinc-950 text-zinc-100 font-sans">
+  <main class="max-w-6xl mx-auto p-6 space-y-6">
+    <header>
+      <h1 class="text-2xl font-bold">Derive raw-data dump</h1>
+      <p class="text-zinc-400 text-sm">
+        Live smoke test: confirms <code class="font-mono text-teal-400">js/derive.js</code>
+        decodes each endpoint into the shape the math layer expects, before any
+        chart is built on top. Hits api.lyra.finance directly (public, no auth).
+      </p>
+    </header>
+
+    <section class="bg-zinc-900 border border-zinc-800 rounded p-4">
+      <div class="flex items-center gap-3 mb-3">
+        <button id="run" class="bg-teal-600 hover:bg-teal-500 text-white px-4 py-2 rounded font-mono text-sm">
+          Fetch all
+        </button>
+        <button id="clear-cache" class="bg-zinc-700 hover:bg-zinc-600 text-zinc-100 px-4 py-2 rounded font-mono text-sm">
+          Clear instruments cache
+        </button>
+        <span id="stats" class="font-mono text-xs text-zinc-400 ml-auto"></span>
+      </div>
+      <div id="out" class="font-mono text-xs whitespace-pre-wrap text-zinc-300"></div>
+    </section>
+  </main>
+
+  <script type="module">
+    import {
+      getInstruments,
+      getExpiries,
+      getChainForExpiry,
+      getFullChain,
+      getCallStats,
+      clearInstrumentsCache,
+      CURRENCY,
+    } from "../js/derive.js";
+
+    const out = document.getElementById("out");
+    const stats = document.getElementById("stats");
+
+    /** @param {string} s */
+    const log = (s) => { out.textContent += s + "\n"; };
+
+    function refreshStats() {
+      const s = getCallStats();
+      stats.textContent = `calls=${s.totalCalls}  errors=${s.errors}  last=${s.lastCallTs ? new Date(s.lastCallTs).toISOString() : "—"}`;
+    }
+
+    document.getElementById("clear-cache").addEventListener("click", () => {
+      clearInstrumentsCache();
+      log("[cache] cleared");
+    });
+
+    document.getElementById("run").addEventListener("click", async () => {
+      out.textContent = "";
+      try {
+        log(`underlying = ${CURRENCY}`);
+
+        log("\n--- /public/get_instruments (options) ---");
+        const insts = await getInstruments();
+        log(`count = ${insts.length}`);
+        log(`first.instrument_name = ${insts[0]?.instrument_name}`);
+        refreshStats();
+
+        log("\n--- expiries ---");
+        const expiries = await getExpiries();
+        log(`unique expiries = ${expiries.length}`);
+        for (const e of expiries) {
+          log(`  ${e.expiryDate}  →  ${new Date(e.expirationMs).toISOString()}`);
+        }
+        refreshStats();
+
+        log("\n--- /public/get_tickers (front expiry) ---");
+        const front = await getChainForExpiry(expiries[0].expiryDate);
+        log(`rows = ${front.rows.length}  indexPrice = ${front.indexPrice}`);
+        const sample = front.rows.find((r) => r.oi > 0) || front.rows[0];
+        log(`sample = ${JSON.stringify(sample, null, 2)}`);
+        refreshStats();
+
+        log("\n--- getFullChain (all expiries) ---");
+        const full = await getFullChain();
+        log(`total rows = ${full.rows.length}  expiries = ${full.expiries}`);
+        log(`spot (index) = ${full.indexPrice}`);
+        const withOi = full.rows.filter((r) => r.oi > 0).length;
+        const withIv = full.rows.filter((r) => Number.isFinite(r.markIv) && r.markIv > 0).length;
+        log(`rows with OI>0 = ${withOi}`);
+        log(`rows with valid IV = ${withIv}`);
+        const totalOi = full.rows.reduce((a, r) => a + (r.oi || 0), 0);
+        log(`total OI (contracts) = ${totalOi.toLocaleString()}`);
+        refreshStats();
+
+        log("\nALL ENDPOINTS OK");
+      } catch (err) {
+        log(`\nERROR: ${err.message}`);
+        refreshStats();
+      }
+    });
+  </script>
+</body>
+</html>

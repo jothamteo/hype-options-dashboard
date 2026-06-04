@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>HYPE Options Dashboard — Derive (Lyra)</title>
+  <meta name="description" content="Live dealer gamma (GEX), open-interest walls, vol surface, skew, and max-pain dashboard for HYPE options on Derive. Browser-only, no backend." />
+  <link rel="icon" type="image/svg+xml" href="assets/favicon.svg" />
+
+  <!-- Open Graph / Twitter card for sharing -->
+  <meta property="og:title" content="HYPE Options Dashboard — Derive" />
+  <meta property="og:description" content="Live dealer gamma, OI walls, vol surface, skew & max pain for HYPE options. Browser-only, all math local." />
+  <meta name="twitter:card" content="summary_large_image" />
+
+  <!-- Speed: warm up TCP+TLS to Derive and the two CDNs in parallel with the
+       HTML parse, so the first fetches don't pay handshake cost on cold cache. -->
+  <link rel="preconnect" href="https://api.lyra.finance" crossorigin />
+  <link rel="preconnect" href="https://cdn.plot.ly" crossorigin />
+  <link rel="preconnect" href="https://cdn.tailwindcss.com" crossorigin />
+  <link rel="dns-prefetch" href="https://api.lyra.finance" />
+  <link rel="dns-prefetch" href="https://cdn.plot.ly" />
+
+  <!-- Tailwind CDN — kept synchronous so we don't FOUC. Small (~30KB compressed). -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Plotly is large (~4.5MB uncompressed). Defer so it doesn't block HTML
+       parse; main.js waits for the load event before any Plotly.react call. -->
+  <script src="https://cdn.plot.ly/plotly-2.35.2.min.js" charset="utf-8" defer></script>
+
+  <style>
+    /* Skeleton loading state inside chart containers. Sits as a child div
+       so the chart container itself stays a plain block — Plotly assumes
+       block layout when sizing its render. Plotly.purge() (which Plotly.react
+       calls implicitly) clears the .skel child on first render. */
+    .skel {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      height: 100%;
+      color: #52525b;
+      font-family: ui-monospace, "SF Mono", monospace;
+      font-size: 0.875rem;
+    }
+  </style>
+</head>
+<body class="bg-zinc-950 text-zinc-100 font-sans">
+  <header class="border-b border-zinc-800 bg-zinc-950 sticky top-0 z-10">
+    <div class="max-w-7xl mx-auto px-6 py-4 flex items-center gap-6 flex-wrap">
+      <h1 class="text-xl font-bold tracking-tight">
+        HYPE Options Dashboard
+        <span class="text-zinc-500 font-normal text-sm">· Derive</span>
+      </h1>
+      <div class="flex-1"></div>
+      <span id="last-updated" aria-live="polite" class="font-mono text-xs text-zinc-400">never</span>
+      <button id="pause" type="button" aria-label="Toggle automatic refresh" class="bg-zinc-800 hover:bg-zinc-700 text-zinc-100 px-3 py-1.5 rounded font-mono text-xs focus:outline-none focus:ring-2 focus:ring-teal-500">
+        pause refresh
+      </button>
+      <span id="api-budget" class="font-mono text-xs text-zinc-500" title="Cumulative Derive API calls this session"></span>
+      <a href="https://github.com/jothamteo/hype-options-dashboard" class="text-zinc-400 hover:text-zinc-100 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500 rounded">GitHub</a>
+      <a href="docs/methodology.html" class="text-zinc-400 hover:text-zinc-100 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500 rounded">Methodology</a>
+    </div>
+  </header>
+
+  <main class="max-w-7xl mx-auto p-6 space-y-6">
+    <!-- Spot / context strip -->
+    <section id="context-strip" class="bg-zinc-900 border border-zinc-800 rounded p-4">
+      <div class="text-zinc-500 text-sm font-mono">loading…</div>
+    </section>
+
+    <!-- GEX -->
+    <section class="bg-zinc-900 border border-zinc-800 rounded p-4">
+      <div class="flex items-baseline justify-between mb-2">
+        <h2 class="text-lg font-semibold">Dealer Gamma Exposure</h2>
+        <span class="text-xs text-zinc-500 font-mono">+calls, −puts (SqueezeMetrics canonical)</span>
+      </div>
+      <div id="gex-by-strike" class="h-96"><div class="skel">fetching options chain…</div></div>
+      <div class="text-xs text-zinc-500 mt-1 font-mono">total GEX vs hypothetical spot — zero-gamma flip annotated</div>
+      <div id="gex-vs-spot" class="h-72 mt-2"></div>
+    </section>
+
+    <!-- Open interest walls -->
+    <section class="bg-zinc-900 border border-zinc-800 rounded p-4">
+      <div class="flex items-baseline justify-between mb-2">
+        <h2 class="text-lg font-semibold">Open Interest Walls</h2>
+        <span class="text-xs text-zinc-500 font-mono">calls ▲ resistance · puts ▼ support</span>
+      </div>
+      <div id="oi-by-strike" class="h-96"><div class="skel">…</div></div>
+    </section>
+
+    <!-- IV surface + per-expiry slices -->
+    <section class="bg-zinc-900 border border-zinc-800 rounded p-4">
+      <h2 class="text-lg font-semibold mb-2">Implied Volatility Surface</h2>
+      <div id="iv-surface" class="h-[28rem]"><div class="skel">fitting SVI per expiry…</div></div>
+      <div id="iv-slices" class="mt-4 overflow-hidden"></div>
+    </section>
+
+    <!-- Term structure & skew -->
+    <section class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <div class="bg-zinc-900 border border-zinc-800 rounded p-4">
+        <h2 class="text-lg font-semibold mb-2">ATM IV term structure</h2>
+        <div id="term-structure" class="h-72"><div class="skel">…</div></div>
+      </div>
+      <div class="bg-zinc-900 border border-zinc-800 rounded p-4">
+        <h2 class="text-lg font-semibold mb-2">25Δ Risk-reversal & Butterfly</h2>
+        <div id="skew" class="h-72"><div class="skel">…</div></div>
+      </div>
+    </section>
+
+    <!-- Max pain -->
+    <section class="bg-zinc-900 border border-zinc-800 rounded p-4">
+      <h2 class="text-lg font-semibold mb-2">Max pain by expiry</h2>
+      <div id="max-pain-tabs" class="flex gap-2 mb-3 flex-wrap"></div>
+      <div id="max-pain-chart" class="h-80"><div class="skel">…</div></div>
+    </section>
+  </main>
+
+  <footer class="max-w-7xl mx-auto p-6 text-zinc-500 text-xs space-y-1">
+    <p>
+      Browser-only · refreshes every 30s · all math computed locally — no backend.
+      Data: <a class="underline hover:text-zinc-300" href="https://docs.derive.xyz/">Derive public API</a> (api.lyra.finance).
+    </p>
+    <p>
+      <a class="underline hover:text-zinc-300" href="https://github.com/jothamteo/hype-options-dashboard">Source on GitHub</a>
+      &nbsp;·&nbsp;
+      <a class="underline hover:text-zinc-300" href="docs/methodology.html">Methodology</a>
+      &nbsp;·&nbsp;
+      <a class="underline hover:text-zinc-300" href="tests/test_black_scholes.html">BS tests</a>
+      &nbsp;·&nbsp;
+      <a class="underline hover:text-zinc-300" href="tests/test_svi.html">SVI tests</a>
+      &nbsp;·&nbsp;
+      <a class="underline hover:text-zinc-300" href="tests/test_gex.html">GEX tests</a>
+      &nbsp;·&nbsp;
+      <a class="underline hover:text-zinc-300" href="tests/test_skew.html">Skew tests</a>
+      &nbsp;·&nbsp;
+      <a class="underline hover:text-zinc-300" href="tests/test_max_pain.html">Max-pain tests</a>
+    </p>
+    <p class="text-zinc-600">
+      Dealer-positioning sign convention is the SqueezeMetrics canonical assumption (+calls, −puts).
+      See <a class="underline" href="docs/methodology.html">Methodology §3.4</a> for caveats specific to Derive's flow mix.
+      Not financial advice.
+    </p>
+  </footer>
+
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>
