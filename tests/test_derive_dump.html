@@ -37,11 +37,17 @@
       getInstruments,
       getExpiries,
       getChainForExpiry,
-      getFullChain,
+      getFullChainLive,
       getCallStats,
       clearInstrumentsCache,
       CURRENCY,
     } from "../js/derive.js";
+
+    // NOTE: this page calls the Derive API LIVE. That only works where CORS
+    // allows it (Node, CI, or an allowlisted origin) — from GitHub Pages the
+    // browser will block it (which is exactly why the dashboard reads a static
+    // snapshot instead; see js/derive.js header). Run it locally to smoke-test
+    // the decode logic against the live API.
 
     const out = document.getElementById("out");
     const stats = document.getElementById("stats");
@@ -85,8 +91,8 @@
         log(`sample = ${JSON.stringify(sample, null, 2)}`);
         refreshStats();
 
-        log("\n--- getFullChain (all expiries) ---");
-        const full = await getFullChain();
+        log("\n--- getFullChainLive (all expiries) ---");
+        const full = await getFullChainLive();
         log(`total rows = ${full.rows.length}  expiries = ${full.expiries}`);
         log(`spot (index) = ${full.indexPrice}`);
         const withOi = full.rows.filter((r) => r.oi > 0).length;

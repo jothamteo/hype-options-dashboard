@@ -1,9 +1,20 @@
 /**
- * Derive (formerly Lyra) public REST API client.
+ * Derive (formerly Lyra) public REST API client + static-snapshot loader.
  *
- * All endpoints used here are public market-data (no auth, no API key). CORS
- * is enabled by Derive, so the browser fetches directly. The relevant docs:
- *   https://docs.derive.xyz/reference/
+ * All endpoints used here are public market-data (no auth, no API key). BUT:
+ * the Derive API (api.lyra.finance) does NOT send an Access-Control-Allow-Origin
+ * header, so a browser on a public origin (e.g. GitHub Pages) cannot call it
+ * directly — the fetch is blocked by CORS. (curl/server-side has no such
+ * restriction, which is why the live functions below work in Node and in CI.)
+ *
+ * So the deployed dashboard does NOT hit the API live. Instead a GitHub Action
+ * (scripts/fetch_chain.py) fetches the chain server-side every few minutes and
+ * commits a static snapshot to data/chain.json; getFullChain() reads that
+ * same-origin file (no CORS) and decodes it with the same logic the live path
+ * uses. The live functions (getFullChainLive, getChainForExpiry, …) remain for
+ * the CI fetcher and the smoke test.
+ *
+ * Docs: https://docs.derive.xyz/reference/
  *
  * Data model notes that drove this client's design:
  *
@@ -173,7 +184,19 @@ export async function getChainForExpiry(expiryDate) {
     instrument_type: "option",
     expiry_date: expiryDate,
   });
-  const tickers = result?.tickers ?? {};
+  return decodeTickers(result?.tickers ?? {}, expiryDate);
+}
+
+/**
+ * Decode a single expiry's abbreviated `tickers` map (as returned by
+ * get_tickers, or as stored in the data snapshot) into rich rows. Pure — no
+ * network — so it serves both the live path and the snapshot path.
+ *
+ * @param {Record<string, any>} tickers
+ * @param {number} expiryDate  YYYYMMDD
+ * @returns {{rows: Array<DeriveOptionRow>, indexPrice: number, ts: number}}
+ */
+export function decodeTickers(tickers, expiryDate) {
   const expirationMs = expiryDateToMs(expiryDate);
 
   /** @type {Array<DeriveOptionRow>} */
@@ -219,12 +242,70 @@ export async function getChainForExpiry(expiryDate) {
 }
 
 /**
- * Fetch the ENTIRE surface: every expiry's chain, in parallel. Returns a flat
- * row array plus the best index price and freshest timestamp observed.
+ * Path to the static chain snapshot, relative to the page. A GitHub Action
+ * refreshes this every few minutes (see scripts/fetch_chain.py) because the
+ * Derive API is not CORS-enabled for browsers — see the module header.
+ */
+export const SNAPSHOT_URL = "./data/chain.json";
+
+/**
+ * Load the ENTIRE surface from the static snapshot (same-origin, no CORS) and
+ * decode it. This is the dashboard's primary data path. Returns a flat row
+ * array plus the index price, the freshest per-instrument timestamp, the
+ * snapshot's own fetch time, and the expiry count.
+ *
+ * @returns {Promise<{rows: Array<DeriveOptionRow>, indexPrice: number, ts: number, fetchedAt: number, expiries: number, stale: boolean}>}
+ */
+export async function getFullChain() {
+  _stats.totalCalls += 1;
+  _stats.lastCallTs = Date.now();
+  let snap;
+  try {
+    // Cache-bust so a fresh Action commit shows up without a hard refresh.
+    const resp = await fetch(`${SNAPSHOT_URL}?t=${Math.floor(Date.now() / 30000)}`, { cache: "no-store" });
+    if (!resp.ok) throw new Error(`snapshot HTTP ${resp.status}`);
+    snap = await resp.json();
+  } catch (err) {
+    _stats.errors += 1;
+    throw new Error(`could not load chain snapshot (${err.message}). The data refresh Action may not have run yet.`);
+  }
+  return decodeSnapshot(snap);
+}
+
+/**
+ * Decode a snapshot object (the parsed data/chain.json) into the getFullChain
+ * return shape. Exposed for tests.
+ *
+ * @param {object} snap
+ */
+export function decodeSnapshot(snap) {
+  const expiries = snap.expiries ?? [];
+  /** @type {Array<DeriveOptionRow>} */
+  const rows = [];
+  let indexPrice = NaN;
+  let ts = 0;
+  for (const d of expiries) {
+    const chain = snap.chains?.[String(d)];
+    if (!chain) continue;
+    const dec = decodeTickers(chain.tickers ?? {}, d);
+    rows.push(...dec.rows);
+    if (Number.isFinite(dec.indexPrice)) indexPrice = dec.indexPrice;
+    ts = Math.max(ts, dec.ts);
+  }
+  const fetchedAt = num(snap.fetchedAt);
+  // Older than 30 min ⇒ flag as stale (the Action refreshes every ~10 min).
+  const stale = Number.isFinite(fetchedAt) && Date.now() - fetchedAt > 30 * 60 * 1000;
+  return { rows, indexPrice, ts, fetchedAt, expiries: expiries.length, stale };
+}
+
+/**
+ * Live full-chain fetch straight from the Derive API (no snapshot). Works only
+ * where CORS allows it (server-side, or an allowlisted origin) — used by the
+ * fetch script's logic and the smoke test, NOT by the deployed dashboard.
  *
  * @returns {Promise<{rows: Array<DeriveOptionRow>, indexPrice: number, ts: number, expiries: number}>}
  */
-export async function getFullChain() {
+export async function getFullChainLive() {
   const expiries = await getExpiries();
   const chains = await Promise.all(expiries.map((e) => getChainForExpiry(e.expiryDate)));
 

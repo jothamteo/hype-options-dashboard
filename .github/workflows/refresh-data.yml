@@ -1,0 +1,37 @@
+name: Refresh HYPE option chain
+
+# Fetches the Derive option chain server-side (no CORS limit there) and commits
+# a fresh data/chain.json that the GitHub Pages dashboard reads same-origin.
+on:
+  schedule:
+    - cron: "*/10 * * * *"   # every ~10 min (GitHub may delay under load)
+  workflow_dispatch: {}        # manual "Run workflow" button
+
+# Only one refresh at a time; a slow run shouldn't pile up behind the schedule.
+concurrency:
+  group: refresh-data
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Fetch chain snapshot
+        run: python3 scripts/fetch_chain.py
+
+      - name: Commit if changed
+        run: |
+          if git diff --quiet -- data/chain.json; then
+            echo "no change in chain.json"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/chain.json
+          git commit -m "data: refresh HYPE chain snapshot [skip ci]"
+          git push

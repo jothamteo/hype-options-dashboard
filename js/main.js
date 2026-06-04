@@ -58,7 +58,7 @@ pauseBtn.addEventListener("click", () => {
 
 function renderApiBudget() {
   const s = getCallStats();
-  apiBudget.textContent = `api calls: ${s.totalCalls}${s.errors ? ` (${s.errors} err)` : ""}`;
+  apiBudget.textContent = `snapshot loads: ${s.totalCalls}${s.errors ? ` (${s.errors} err)` : ""}`;
 }
 setInterval(renderApiBudget, 1000);
 renderApiBudget();
@@ -301,11 +301,19 @@ async function tick() {
     }
   }
 
-  const ms = (performance.now() - t0).toFixed(0);
-  lastUpdated.textContent =
-    `${new Date().toISOString().replace("T", " ").slice(0, 19)} UTC  (${ms}ms · ${payload.expiries} expiries)`;
-  lastUpdated.classList.remove("text-rose-500");
-  lastUpdated.classList.add("text-zinc-400");
+  // Snapshot age — the data is as fresh as the last GitHub Action run, not
+  // this render. Surface it honestly, and warn when stale.
+  const ageMin = Number.isFinite(payload.fetchedAt)
+    ? Math.round((Date.now() - payload.fetchedAt) / 60000)
+    : null;
+  const ageStr = ageMin == null ? "" : ageMin < 1 ? "just now" : `${ageMin}m ago`;
+  const stamp = new Date().toISOString().replace("T", " ").slice(0, 19);
+  lastUpdated.textContent = payload.stale
+    ? `data ${ageStr} — STALE (refresh Action may be paused)`
+    : `data ${ageStr} · rendered ${stamp} UTC · ${payload.expiries} expiries`;
+  lastUpdated.classList.toggle("text-rose-500", !!payload.stale);
+  lastUpdated.classList.toggle("text-amber-400", false);
+  lastUpdated.classList.toggle("text-zinc-400", !payload.stale);
 }
 
 /**
