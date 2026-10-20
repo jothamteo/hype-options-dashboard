@@ -14,10 +14,10 @@
 
   <!-- Speed: warm up TCP+TLS to Derive and the two CDNs in parallel with the
        HTML parse, so the first fetches don't pay handshake cost on cold cache. -->
-  <link rel="preconnect" href="https://api.lyra.finance" crossorigin />
+  <link rel="preconnect" href="https://api.derive.xyz" crossorigin />
   <link rel="preconnect" href="https://cdn.plot.ly" crossorigin />
   <link rel="preconnect" href="https://cdn.tailwindcss.com" crossorigin />
-  <link rel="dns-prefetch" href="https://api.lyra.finance" />
+  <link rel="dns-prefetch" href="https://api.derive.xyz" />
   <link rel="dns-prefetch" href="https://cdn.plot.ly" />
 
   <!-- Tailwind CDN — kept synchronous so we don't FOUC. Small (~30KB compressed). -->
@@ -116,7 +116,7 @@
   <footer class="max-w-7xl mx-auto p-6 text-zinc-500 text-xs space-y-1">
     <p>
       Browser-only · all math computed locally · no backend server.
-      Data: <a class="underline hover:text-zinc-300" href="https://docs.derive.xyz/">Derive public API</a> (api.lyra.finance),
+      Data: <a class="underline hover:text-zinc-300" href="https://docs.derive.xyz/">Derive public API</a> (api.derive.xyz/v3),
       snapshotted server-side every ~10 min by a GitHub Action (the API isn't CORS-enabled for browsers).
       The page re-reads the snapshot every 30s.
     </p>

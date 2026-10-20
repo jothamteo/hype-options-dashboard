@@ -2,7 +2,7 @@
 
 This document derives every formula computed in the dashboard. It is written for someone who knows Black-Scholes and basic options microstructure but wants to verify the implementation matches their understanding. Honest about assumptions; explicit about limitations.
 
-Data source: [Derive](https://derive.xyz) (formerly Lyra), via the public market-data API at `api.lyra.finance`. The underlying tracked is **HYPE** (Hyperliquid's token); the same code retargets to any Derive underlying by changing one constant.
+Data source: [Derive](https://derive.xyz) (formerly Lyra), via the public market-data API at `api.derive.xyz/v3`. The underlying tracked is **HYPE** (Hyperliquid's token); the same code retargets to any Derive underlying by changing one constant.
 
 ---
 
@@ -181,7 +181,7 @@ Reported on the context strip. > 1 means more put than call OI (defensive / hedg
 The dashboard refreshes every 30 seconds. Per refresh:
 
 - $N$× `/public/get_tickers` — one call per live expiry ($N \approx 11$ for HYPE), each returning that expiry's entire chain (greeks, OI, forward, index) in one abbreviated-format response.
-- 0× `/public/get_instruments` — used only to enumerate expiries; cached in `sessionStorage` for 5 min.
+- 0× `/public/get_all_live_instruments` — used only to enumerate expiries; cached in `sessionStorage` for 5 min.
 
 Total: ≈11 HTTP requests per 30s ≈ 0.4 req/s, well within Derive's public-tier limits. The header surfaces the cumulative call counter so the operator (or reviewer) can verify the budget at a glance.
 

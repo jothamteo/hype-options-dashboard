@@ -14,7 +14,7 @@
       <p class="text-zinc-400 text-sm">
         Live smoke test: confirms <code class="font-mono text-teal-400">js/derive.js</code>
         decodes each endpoint into the shape the math layer expects, before any
-        chart is built on top. Hits api.lyra.finance directly (public, no auth).
+        chart is built on top. Hits api.derive.xyz directly (public, no auth).
       </p>
     </header>
 
@@ -70,10 +70,10 @@
       try {
         log(`underlying = ${CURRENCY}`);
 
-        log("\n--- /public/get_instruments (options) ---");
+        log("\n--- /public/get_all_live_instruments (options) ---");
         const insts = await getInstruments();
         log(`count = ${insts.length}`);
-        log(`first.instrument_name = ${insts[0]?.instrument_name}`);
+        log(`first instrument = ${insts[0]}`);
         refreshStats();
 
         log("\n--- expiries ---");

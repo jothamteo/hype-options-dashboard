@@ -42,7 +42,7 @@
         This document derives every formula computed in the dashboard. Written for someone who knows Black-Scholes and basic options microstructure but wants to verify the implementation matches their understanding. Honest about assumptions; explicit about limitations.
       </p>
       <p class="text-zinc-400">
-        Data source: <a href="https://derive.xyz">Derive</a> (formerly Lyra), via the public market-data API at <code>api.lyra.finance</code>. Underlying: <strong>HYPE</strong>. The code retargets to any Derive underlying by changing one constant.
+        Data source: <a href="https://derive.xyz">Derive</a> (formerly Lyra), via the public market-data API at <code>api.derive.xyz/v3</code>. Underlying: <strong>HYPE</strong>. The code retargets to any Derive underlying by changing one constant.
       </p>
 
       <h2>1. Black-Scholes greeks</h2>
@@ -200,7 +200,7 @@
       <p>The dashboard refreshes every 30 seconds. Per refresh:</p>
       <ul>
         <li>$N$× <code>/public/get_tickers</code> — one per live expiry ($N \approx 11$ for HYPE), each returning that expiry's entire chain (greeks, OI, forward, index) in one response.</li>
-        <li>0× <code>/public/get_instruments</code> — used only to enumerate expiries; cached in sessionStorage for 5 min.</li>
+        <li>0× <code>/public/get_all_live_instruments</code> — used only to enumerate expiries; cached in sessionStorage for 5 min.</li>
       </ul>
       <p>
         Total: ≈11 HTTP requests per 30s ≈ 0.4 req/s, well within Derive's public-tier limits. The header surfaces the cumulative call counter so the operator (or reviewer) can verify the budget at a glance.

@@ -2,7 +2,7 @@
  * Derive (formerly Lyra) public REST API client + static-snapshot loader.
  *
  * All endpoints used here are public market-data (no auth, no API key). BUT:
- * the Derive API (api.lyra.finance) does NOT send an Access-Control-Allow-Origin
+ * the Derive API (api.derive.xyz) does NOT send an Access-Control-Allow-Origin
  * header, so a browser on a public origin (e.g. GitHub Pages) cannot call it
  * directly — the fetch is blocked by CORS. (curl/server-side has no such
  * restriction, which is why the live functions below work in Node and in CI.)
@@ -18,7 +18,8 @@
  *
  * Data model notes that drove this client's design:
  *
- *  - `public/get_instruments` lists every live option as a flat array. Strike,
+ *  - `public/get_all_live_instruments` lists every live option name as a flat
+ *    array of strings (all currencies — filter by name prefix). Strike,
  *    type and expiry live under `option_details`, and are also encoded in the
  *    instrument name `HYPE-YYYYMMDD-<strike>-<C|P>`.
  *
@@ -39,7 +40,9 @@
  * @module derive
  */
 
-const BASE_URL = "https://api.lyra.finance";
+// Derive retired the unversioned api.lyra.finance host in Oct 2026 (every
+// /public/* POST there now returns an nginx 503). Live host is versioned.
+const BASE_URL = "https://api.derive.xyz/v3";
 
 const INSTRUMENTS_CACHE_KEY = "derive:instruments:HYPE:option";
 // Instrument listings only change when a new expiry lists — refetching the
@@ -99,12 +102,14 @@ async function _post(path, body = {}) {
  * @returns {{underlying: string, expiryDate: number, strike: number, type: "call"|"put"} | null}
  */
 export function parseInstrumentName(name) {
-  const m = /^([A-Z0-9]+)-(\d{8})-([\d.]+)-([CP])$/.exec(name);
+  const m = /^([A-Z0-9]+)-(\d{8})-([\d._]+)-([CP])$/.exec(name);
   if (!m) return null;
   return {
     underlying: m[1],
     expiryDate: Number(m[2]),
-    strike: Number(m[3]),
+    // Derive encodes fractional strikes with "_" as the decimal point
+    // (e.g. HYPE-20261030-87_5-C). Number("87_5") is NaN, so normalise first.
+    strike: Number(m[3].replace("_", ".")),
     type: m[4] === "C" ? "call" : "put",
   };
 }
@@ -125,11 +130,11 @@ export function expiryDateToMs(yyyymmdd) {
 }
 
 /**
- * Live option instruments for the tracked currency. Cached in sessionStorage
- * for 5 min. We use this only to enumerate the distinct expiries to poll —
- * all the per-strike data comes from get_tickers.
+ * Live option instrument *names* for the tracked currency. Cached in
+ * sessionStorage for 5 min. We use this only to enumerate the distinct
+ * expiries to poll — all the per-strike data comes from get_tickers.
  *
- * @returns {Promise<Array<object>>}
+ * @returns {Promise<Array<string>>}
  */
 export async function getInstruments() {
   const cached = sessionStorage.getItem(INSTRUMENTS_CACHE_KEY);
@@ -141,12 +146,16 @@ export async function getInstruments() {
       /* fall through to refetch */
     }
   }
-  const result = await _post("/public/get_instruments", {
+  const result = await _post("/public/get_all_live_instruments", {
     currency: CURRENCY,
     instrument_type: "option",
-    expired: false,
   });
-  const data = Array.isArray(result) ? result : result?.instruments ?? [];
+  const all = Array.isArray(result) ? result : result?.instruments ?? [];
+  // The endpoint ignores the `currency` filter and returns every listed
+  // underlying, so narrow to ours by name prefix.
+  const data = all
+    .map((i) => (typeof i === "string" ? i : i?.instrument_name ?? ""))
+    .filter((n) => n.startsWith(`${CURRENCY}-`));
   sessionStorage.setItem(
     INSTRUMENTS_CACHE_KEY,
     JSON.stringify({ ts: Date.now(), data })
@@ -160,10 +169,10 @@ export async function getInstruments() {
  * @returns {Promise<Array<{expiryDate: number, expirationMs: number}>>}
  */
 export async function getExpiries() {
-  const insts = await getInstruments();
+  const names = await getInstruments();
   const set = new Set();
-  for (const inst of insts) {
-    const parsed = parseInstrumentName(inst.instrument_name);
+  for (const name of names) {
+    const parsed = parseInstrumentName(name);
     if (parsed) set.add(parsed.expiryDate);
   }
   return [...set]

@@ -32,9 +32,9 @@ The **zero-gamma flip** is the spot at which that sign flips. Its distance from 
 
 ## Data source
 
-[Derive](https://docs.derive.xyz/) public market-data API at `api.lyra.finance` — no auth required for market data.
+[Derive](https://docs.derive.xyz/) public market-data API at `api.derive.xyz/v3` — no auth required for market data.
 
-- `get_instruments` enumerates live expiries (cached 5 min).
+- `get_all_live_instruments` enumerates live expiries (cached 5 min).
 - `get_tickers` (one call per expiry, ≈11 for HYPE) returns each expiry's **entire** chain in one abbreviated-format response: per-strike greeks (delta/gamma/vega/theta), IV, mark, **per-option forward price**, index price, and open interest.
 
 ≈11 requests per 30s refresh (~0.4 req/s) — well within Derive's public limits. The header shows a live call counter.

@@ -3,7 +3,7 @@
 Fetch the full HYPE option chain from Derive's public API and write a static
 snapshot to data/chain.json.
 
-Why this exists: Derive's API (api.lyra.finance) does NOT send an
+Why this exists: Derive's API (api.derive.xyz) does NOT send an
 Access-Control-Allow-Origin header, so a browser on a public origin (GitHub
 Pages) cannot fetch it directly — the request is blocked by CORS. This script
 runs server-side (in GitHub Actions, or locally), where CORS does not apply,
@@ -21,11 +21,14 @@ import urllib.request
 import urllib.error
 from pathlib import Path
 
-BASE_URL = "https://api.lyra.finance"
+# Derive retired the unversioned api.lyra.finance host in Oct 2026 (it now
+# returns nginx 503 for every /public/* POST). The live host is the versioned
+# api.derive.xyz/v3 one.
+BASE_URL = "https://api.derive.xyz/v3"
 CURRENCY = "HYPE"
 OUT_PATH = Path(__file__).resolve().parent.parent / "data" / "chain.json"
 
-NAME_RE = re.compile(r"^([A-Z0-9]+)-(\d{8})-([\d.]+)-([CP])$")
+NAME_RE = re.compile(r"^([A-Z0-9]+)-(\d{8})-([\d._]+)-([CP])$")
 
 
 def post(path, body, retries=3):
@@ -57,16 +60,22 @@ def post(path, body, retries=3):
 
 
 def expiry_dates():
-    """Distinct YYYYMMDD expiry dates for the tracked currency, sorted."""
+    """Distinct YYYYMMDD expiry dates for the tracked currency, sorted.
+
+    `get_all_live_instruments` replaced the retired `get_instruments`. It
+    returns a flat list of instrument-name *strings* across every currency and
+    ignores the `currency` filter, so filter on the name prefix ourselves.
+    """
     result = post(
-        "/public/get_instruments",
-        {"currency": CURRENCY, "instrument_type": "option", "expired": False},
+        "/public/get_all_live_instruments",
+        {"currency": CURRENCY, "instrument_type": "option"},
     )
     insts = result if isinstance(result, list) else result.get("instruments", [])
     dates = set()
     for inst in insts:
-        m = NAME_RE.match(inst.get("instrument_name", ""))
-        if m:
+        name = inst if isinstance(inst, str) else inst.get("instrument_name", "")
+        m = NAME_RE.match(name)
+        if m and m.group(1) == CURRENCY:
             dates.add(int(m.group(2)))
     return sorted(dates)
 
